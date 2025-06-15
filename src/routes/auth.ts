@@ -19,13 +19,14 @@ router.post("/register", (req, res) => {
     ).run(id, username, email, hash, role);
     res.status(201).json({ id, username, email });
   } catch (err) {
+    console.log(err)
     res.status(400).json({ error: "User already exists" });
   }
 });
 
 router.post("/login", (req, res) => {
   const { email, password } = req.body;
-  const user = db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+  const user = db.prepare(`SELECT * FROM users WHERE email = ?`).get(email) as {id: string, password_hash: string, role: string} | undefined;
   if (user && bcrypt.compareSync(password, user.password_hash)) {
     const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET);
     res.json({ token });

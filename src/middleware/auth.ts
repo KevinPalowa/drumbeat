@@ -8,13 +8,16 @@ export interface AuthRequest extends Request {
 }
 
 export function authenticateToken(
-  req: AuthRequest,
+  req: Request,
   res: Response,
   next: NextFunction,
 ) {
   const authHeader = req.headers["authorization"];
   const token = authHeader?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Missing token" });
+  if (!token) {
+    res.status(401).json({ error: "Missing token" });
+    return;
+  }
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as {

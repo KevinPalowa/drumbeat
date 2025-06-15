@@ -1,23 +1,68 @@
-import express from "express";
+import express, { Router, Request, Response } from "express";
 import { db } from "../lib/db";
 import { v4 as uuidv4 } from "uuid";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
 
-const router = express.Router();
+interface Track {
+  vol: number;
+  steps: number[];
+}
+
+interface PatternData {
+  [trackName: string]: Track;
+}
+interface PatternMetadata {
+  author: string;
+  title: string;
+}
+
+interface PatternOptions {
+  tempo: number; // BPM
+  kit: string; // e.g. "808", "909"
+}
+
+interface Pattern {
+  id: string;
+  creator_id: string;
+  metadata: string;
+  options: string;
+  pattern: string;
+  genre: string;
+  status: "pending" | "approved" | "deleted";
+  likes_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+interface Like {
+  user_id: string;
+  pattern_id: string;
+  created_at: string;
+}
+
+const router: Router = express.Router();
 router.use(authenticateToken);
 
-router.get("/", (req, res) => {
-  const rows = db.prepare(`SELECT * FROM patterns`).all();
+// GET all patterns
+router.get("/", (req: Request, res: Response) => {
+  const rows = db.prepare(`SELECT * FROM patterns`).all() as Pattern[];
   const parsed = rows.map((row) => ({
     ...row,
-    metadata: JSON.parse(row.metadata),
-    options: JSON.parse(row.options),
-    pattern: JSON.parse(row.pattern),
+    metadata: JSON.parse(row.metadata) as PatternMetadata,
+    options: JSON.parse(row.options) as PatternOptions,
+    pattern: JSON.parse(row.pattern) as PatternData,
   }));
   res.json(parsed);
 });
-router.post("/", (req: AuthRequest, res) => {
-  const { metadata, options, pattern, genre } = req.body;
+
+// POST new pattern
+router.post("/", (req: AuthRequest, res: Response) => {
+  const { metadata, options, pattern, genre } = req.body as {
+    metadata: { author: string; title: string };
+    options: { tempo: number; kit: string };
+    pattern: PatternData;
+    genre: string;
+  };
   const creator_id = req.user!.id;
   const id = uuidv4();
 
@@ -37,9 +82,18 @@ router.post("/", (req: AuthRequest, res) => {
 
   res.status(201).json({ id });
 });
-router.put("/:id", (req, res) => {
+
+// PUT update pattern
+router.put("/:id", (req: Request, res: Response) => {
   const { id } = req.params;
-  const { title, tempo, kit, genre, status } = req.body;
+  const { title, tempo, kit, genre, status } = req.body as {
+    title: string;
+    tempo: number;
+    kit: string;
+    genre: string;
+    status: "pending" | "approved" | "deleted";
+  };
+
   db.prepare(
     `
     UPDATE patterns SET title = ?, tempo = ?, kit = ?, genre = ?, status = ?, updated_at = CURRENT_TIMESTAMP
@@ -49,29 +103,30 @@ router.put("/:id", (req, res) => {
   res.json({ updated: true });
 });
 
-router.delete("/:id", (req, res) => {
+// DELETE pattern
+router.delete("/:id", (req: Request, res: Response) => {
   const { id } = req.params;
   db.prepare(`DELETE FROM patterns WHERE id = ?`).run(id);
   res.json({ deleted: true });
 });
 
-router.post("/:id/like", (req, res) => {
-  const { id } = req.params; // pattern_id
-  const user_id = req.user!.id; // Use authenticated user's ID
+// POST like/unlike pattern
+router.post("/:id/like", (req: Request, res: Response) => {
+  const { id } = req.params;
+  const user_id = req.user!.id;
 
-  // Verify pattern exists
-  const pattern = db.prepare(`SELECT id FROM patterns WHERE id = ?`).get(id);
+  const pattern = db.prepare(`SELECT id FROM patterns WHERE id = ?`).get(id) as
+    | Pattern
+    | undefined;
   if (!pattern) {
-    return res.status(404).json({ error: "Pattern not found" });
+    res.status(404).json({ error: "Pattern not found" });
   }
 
-  // Check if the like already exists
   const existing = db
     .prepare(`SELECT * FROM likes WHERE user_id = ? AND pattern_id = ?`)
-    .get(user_id, id);
+    .get(user_id, id) as Like | undefined;
 
   if (existing) {
-    // Unlike: Remove the like
     db.prepare(`DELETE FROM likes WHERE user_id = ? AND pattern_id = ?`).run(
       user_id,
       id,
@@ -79,9 +134,8 @@ router.post("/:id/like", (req, res) => {
     db.prepare(
       `UPDATE patterns SET likes_count = likes_count - 1 WHERE id = ?`,
     ).run(id);
-    return res.json({ liked: false });
+    res.json({ liked: false });
   } else {
-    // Like: Add the like
     db.prepare(`INSERT INTO likes (user_id, pattern_id) VALUES (?, ?)`).run(
       user_id,
       id,
@@ -89,14 +143,15 @@ router.post("/:id/like", (req, res) => {
     db.prepare(
       `UPDATE patterns SET likes_count = likes_count + 1 WHERE id = ?`,
     ).run(id);
-    return res.json({ liked: true });
+    res.json({ liked: true });
   }
 });
-router.get("/user/:userId", (req, res) => {
+// GET patterns by user
+router.get("/user/:userId", (req: Request, res: Response) => {
   const { userId } = req.params;
   const patterns = db
     .prepare(`SELECT * FROM patterns WHERE creator_id = ?`)
-    .all(userId);
+    .all(userId) as Pattern[];
   res.json(patterns);
 });
 
