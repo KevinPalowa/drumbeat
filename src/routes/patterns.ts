@@ -56,12 +56,22 @@ router.delete("/:id", (req, res) => {
 });
 
 router.post("/:id/like", (req, res) => {
-  const { id } = req.params;
-  const { user_id } = req.body;
+  const { id } = req.params; // pattern_id
+  const user_id = req.user!.id; // Use authenticated user's ID
+
+  // Verify pattern exists
+  const pattern = db.prepare(`SELECT id FROM patterns WHERE id = ?`).get(id);
+  if (!pattern) {
+    return res.status(404).json({ error: "Pattern not found" });
+  }
+
+  // Check if the like already exists
   const existing = db
     .prepare(`SELECT * FROM likes WHERE user_id = ? AND pattern_id = ?`)
     .get(user_id, id);
+
   if (existing) {
+    // Unlike: Remove the like
     db.prepare(`DELETE FROM likes WHERE user_id = ? AND pattern_id = ?`).run(
       user_id,
       id,
@@ -69,8 +79,9 @@ router.post("/:id/like", (req, res) => {
     db.prepare(
       `UPDATE patterns SET likes_count = likes_count - 1 WHERE id = ?`,
     ).run(id);
-    res.json({ liked: false });
+    return res.json({ liked: false });
   } else {
+    // Like: Add the like
     db.prepare(`INSERT INTO likes (user_id, pattern_id) VALUES (?, ?)`).run(
       user_id,
       id,
@@ -78,10 +89,9 @@ router.post("/:id/like", (req, res) => {
     db.prepare(
       `UPDATE patterns SET likes_count = likes_count + 1 WHERE id = ?`,
     ).run(id);
-    res.json({ liked: true });
+    return res.json({ liked: true });
   }
 });
-
 router.get("/user/:userId", (req, res) => {
   const { userId } = req.params;
   const patterns = db
